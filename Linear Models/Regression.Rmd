@@ -1,0 +1,197 @@
+---
+title: "Regression - Linear Regression"
+author: "Hiep Nguyen"
+date: "02/14/2023"
+output: pdf_document
+---
+
+### How does linear regression work?
+Linear regression tries to find a line of best fit within the data. It's important to note that the line doesn't have to be straight, as polynomial linear regression exists and can be used to fit a line on any degree. Linear regression is great when it comes to linear data, and it can be easily adjusted to avoid overfitting the data. However, it's not so good when dealing with non-linear data and it's only used for qualitative data. It's also common to see linear regression underfit the data due to its high bias and low variance approach.
+
+### Data Cleaning
+
+Looking at the original dataset, I've decided to do some basic cleaning that won't affect the training or testing. I see that the column Vehicle Class has some duplicate levels, so I've consolodated those into one. I'm also seeing some values, e.g. fuel and transmission, that could be factorized.
+
+```{r}
+df <- read.csv("Fuel_Consumption_2000-2022.csv")
+
+str(df)
+head(df)
+
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "COMPACT"] <- "Compact"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "FULL-SIZE"] <- "Full-size"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "MID-SIZE"] <- "Mid-size"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "MINICOMPACT"] <- "Minicompact"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "MINIVAN"] <- "Minivan"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "PICKUP TRUCK - SMALL"] <- "Pickup truck: Small"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "PICKUP TRUCK - STANDARD"] <- "Pickup truck: Standard"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "SPECIAL PURPOSE VEHICLE"] <- "Special purpose vehicle"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "STATION WAGON - MID-SIZE"] <- "Station wagon: Mid-size"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "STATION WAGON - SMALL"] <- "Station wagon: Small"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "SUBCOMPACT"] <- "Subcompact"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "SUV - SMALL"] <- "SUV: Small"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "SUV - STANDARD"] <- "SUV: Standard"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "TWO-SEATER"] <- "Two-seater"
+df["VEHICLE.CLASS"][df["VEHICLE.CLASS"] == "VAN - PASSENGER"] <- "Van: Passenger"
+
+df$FUEL <- as.factor(df$FUEL)
+df$TRANSMISSION <- as.factor(df$TRANSMISSION)
+df$MAKE <- as.factor(df$MAKE)
+df$VEHICLE.CLASS <- as.factor(df$VEHICLE.CLASS)
+
+```
+
+### 80/20 Train/Test
+
+Now that our data has been cleaned up, I will do an 80/20 train/test split on the data frame.
+
+```{r}
+set.seed(123)
+i <- sample(1:nrow(df), 0.80*nrow(df), replace=TRUE)
+train <- df[i,]
+test <- df[-i,]
+```
+
+### Data Exploration
+
+For this data, we're going to have the target variable be Fuel Consumption. Our independent variables will be Engine Size, Cylinders, Transmission, and Fuel type. The other variables depend on either these variables or fuel consumption, so we're not going to be using those. Looking into transmission, we can see that some of the levels don't have many samples. This will be good to keep in mind when creating the linear model.
+
+```{r}
+str(train)
+head(train)
+colSums(is.na(train))
+
+print("Vehicle Class Levels:")
+summary(train$VEHICLE.CLASS)
+
+print("Transmission Summary:")
+summary(train$TRANSMISSION)
+```
+
+### Graphing
+
+We're first going to graph the pairs of our independent variables with the fuel consumption to get a good idea of which variables may be helpful. I can already see that Engine Size and Cylinders may have a correlation with fuel consumption. Fuel type could also be a useful variable when it comes to multivariate testing.
+
+```{r}
+pairs(train[4:9])
+```
+
+
+As we can see from the data shown below, there seems to be some correlation on the graphs of engine size, fuel type, and cylinders. I've color coded the engine size chart based on the fuel type, and there does seem to be some noticeable grouping between the colors. This could be useful when creating the multivariate models. Right now, it looks like engine size is the most promising to me, so I'll be using that for the univariate model.
+
+I won't be using the make as some of the makes have a very small number of observations. Not to mention, a single Make can have very different types of cars.
+
+```{r}
+par(mfrow=c(1,1))
+plot(FUEL.CONSUMPTION~ENGINE.SIZE, data=train, col=train$FUEL)
+par(mfrow=c(1,2))
+plot(FUEL.CONSUMPTION~CYLINDERS, data=train)
+boxplot(FUEL.CONSUMPTION~FUEL, data=train)
+```
+
+### Simple Linear Regression Model
+
+I have created a simple linear regression model for fuel consumption as a function of engine size. The residuals seem to maintain a bit of symmetry, and the difference between the minimum of -8.7 and the maximum of 12.15 is wide, but it's narrow enough for our data to still work.
+
+In the coefficient section, we can see estimates and p-values for the engine-size and the intercept. The engine size has an extremely low p-value along with three stars, meaning that our predictor does correlate with the fuel consumption. We have more evidence of this, as our t-value is extremely high. Using the engine size coefficient, for every unit in which our engine size increases, the fuel consumption will increase by 2.15. Combining this with the intercept of 5.51, we can create a linear equation:
+
+FuelConsumption = 2.15*(EngineSize) + 5.51
+
+Our residual standard error of 1.97 indicates that this model will have an average error of 2 gallons. We have 18042 degrees of freedom because we had 18044 observations minus the two predictors. Our R-squared value of 0.6813 shows that 68% of our variance can be explained by engine size. Our F-statistic is extremely far from 0 and our p-value is rather small too, which gives us evidence to reject the null hypothesis.
+
+```{r}
+lm1 = lm(FUEL.CONSUMPTION~ENGINE.SIZE, data=train)
+summary(lm1)
+```
+
+### Plotting the residuals
+
+Looking at the first graph, we can see the line showing a slight downward curve. This could indicate that there's a possible non-linear relationship with the data, but I dont believe that's the case, as the curve is very slight and could be due to an unaccounted variable. The second graph shows whether the residuals are normally distributed or not if it follows the line. Some of our more extreme residuals deviate from the line significantly, so it may not follow a normal distribution. In the third graph, we want to see the points distributed equally around the line and be horizontal. We can see the line becoming more vertical as it goes, which means that the residuals spread wider as x increases. In the fourth graph, we don't see Cook's line (dashed), so we're probably well inside of it. Therefore, there aren't any influential cases that we need to worry about.
+
+```{r}
+par(mfrow=c(2,2))
+plot(lm1)
+```
+
+### Multiple Linear Regression Model
+
+For the first multiple linear regression model, I decided to use the variables Engine Size and Fuel along with an interaction effect between the two. The interaction effect seemed to only marginally increase the performance, possibly insinuating that there's no synergy between them. The residual graphs have become much more noticeably stable.
+
+```{r}
+par(mfrow=c(2,2))
+lm2 = lm(FUEL.CONSUMPTION~ENGINE.SIZE + FUEL + ENGINE.SIZE*FUEL, data=train)
+summary(lm2)
+plot(lm2)
+```
+
+### Second Multiple Linear Regression Model
+
+For the next multiple linear regression model, I decided to go all out and use four variables. Just like the previous graph, the residual graphs look much more stable.
+
+The first model seems to have the highest residual standard error, which goes down as we go through the second, and the third model having the least of the three. A similar trend can be seen in the R-squared values, where the first is the lowest and the third is the highest. Two of the predictors in the third model (Full-size and Mid-size) seem to have very high p-values, which indicate no correlation with fuel consumption. The F-statistic on the third is the lowest, and the first is the highest, which I don't think matters too much. Both the residual graphs in models 2 and 3 look much more stable than model 1, with the first graph even looking almost horizontal.
+
+Out of the three graphs so far, I believe the third model (the one below) is the best. The residual standard error is the least on here and the R-squared values are much higher. I am concerned that the Full-size and Mid-size predictors seem to have very high p-values, which means they likely have no correlation with the fuel consumption.
+
+```{r}
+par(mfrow=c(2,2))
+lm3 = lm(FUEL.CONSUMPTION~ENGINE.SIZE+FUEL+CYLINDERS+VEHICLE.CLASS, data=train)
+summary(lm3)
+plot(lm3)
+```
+
+### Testing Predictions
+
+Looking at the results, we can see that the third model is on average only 1.49 gallons off the test data, compared to 2.02 gallons and 1.67 gallons on models 1 and 2, respectively. The third model also has the highest correlation amongst the three, with the first being the lowest. It's clear that the third model is the best when working with the test data. The results likely ended this way because the third model simply used more variables to calculate the fuel consumption.
+
+```{r}
+
+cat("Linear Model 1 (Simple):\n")
+pred1 <- predict(lm1, newdata=test)
+cor1 <- cor(pred1, test$FUEL.CONSUMPTION)
+mse1 <- mean((pred1-test$FUEL.CONSUMPTION)^2)
+print(paste("MSE: ", mse1))
+print(paste("RMSE: ", sqrt(mse1)))
+print(paste("Correlation: ", cor1))
+
+cat("\nLinear Model 2 (Multiple and Interaction Effect):\n")
+pred2 <- predict(lm2, newdata=test)
+cor2 <- cor(pred2, test$FUEL.CONSUMPTION)
+mse2 <- mean((pred2-test$FUEL.CONSUMPTION)^2)
+print(paste("MSE: ", mse2))
+print(paste("RMSE: ", sqrt(mse2)))
+print(paste("Correlation: ", cor2))
+
+cat("\nLinear Model 3 (Multiple):\n")
+pred3 <- predict(lm3, newdata=test)
+cor3 <- cor(pred3, test$FUEL.CONSUMPTION)
+mse3 <- mean((pred3-test$FUEL.CONSUMPTION)^2)
+print(paste("MSE: ", mse3))
+print(paste("RMSE: ", sqrt(mse3)))
+print(paste("Correlation: ", cor3))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,164 @@
+---
+title: "R Notebook"
+author: "Hiep Nguyen"
+date: "02/14/2023"
+output: pdf_document
+---
+
+### How do linear models for classification work?
+
+For Linear models for classification, we can imagine having a linear line called the decision boundary that separates categories to classify them. Generally for a binary classification, we would calculate the probability of an target to be true/false based on our predictors. If the probability is >50%, we designate it as true. If it's <50%, it's false. This can be done in many ways depending on the algorithm used. In logistic regression, we draw an S-shaped line on our graph and then use the line to calculate our probability. In Naive Bayes, we manipulate probabilities using the formula posterior = (likelihood*prior)/marginal to train our model. Although great for binary classification, these linear models are usually high bias and low variance, which means that often times it will underfit the data.
+
+### Data Cleaning and 80/20 Train/Test
+
+Before I split the data, I did a little bit of simple data cleaning by factoring some of the attributes. I then did a 80/20 train/test split on the dataset.
+
+```{r}
+# Data Cleaning
+heart_data <- read.csv("heart_data.csv")
+to_factor <- c("gender", "gluc", "cholesterol", "smoke", "alco", "active", "cardio")
+heart_data[to_factor] <- lapply(heart_data[to_factor], factor)
+
+# Added BMI to the dataset
+heart_data['bmi'] = heart_data$weight / (heart_data$height/100)^2
+
+# Train/Test
+set.seed(123)
+i <- sample(1:nrow(heart_data), 0.80*nrow(heart_data), replace=FALSE)
+train <- heart_data[i,]
+test <- heart_data[-i,]
+```
+
+### Data Exploration
+
+ap_hi = Systolic blood pressure
+ap_lo = Diastolic blood pressure
+gluc = Glucose
+alco = Alcohol intake
+cardio = Presence or absence of cardiovascular disease (Our target)
+
+```{r}
+head(train)
+tail(train)
+str(train)
+colSums(is.na(train))
+```
+
+### Graphing
+
+As we can see from the graphs below, both higher levels of cholesterol and glucose seem to have an effect on cardiovascular health. For age, the older you are, the more likely you are to develop the disease, too. It can also be seen that if you weigh too little, you're most likely to have the disease. The goldilock's spot appears around 50 kgs and gradually gets larger as we go up the weight. Looking at the ap_hi and ap_lo graphs, we can see the graph being heavily skewed due to some rather extremely high outliers.
+
+```{r}
+library(vcd)
+mosaic(table(train[,c(14, 9)]), shade=TRUE, legend=TRUE)
+mosaic(table(train[,c(14, 10)]), shade=TRUE, legend=TRUE)
+
+par(mfrow=c(1,2))
+cdplot(cardio~weight, data=train)
+cdplot(cardio~age, data=train)
+par(mfrow=c(1,2))
+boxplot(ap_hi~cardio, data=train)
+boxplot(ap_lo~cardio, data=train)
+```
+
+I decided to remove some of the outliers in the ap_hi and ap_lo graphs by limiting the range to be (0, 250).
+
+```{r}
+train <- train[train$ap_hi < 250,]
+train <- train[train$ap_lo < 250,]
+train <- train[train$ap_hi > 0,]
+train <- train[train$ap_lo > 0,]
+par(mfrow=c(1,2))
+boxplot(ap_hi~cardio, data=train)
+boxplot(ap_lo~cardio, data=train)
+```
+
+
+### Logistics Regression Model
+
+The null deviance determines how well our model fits the data using only the intercept, while the residual deviance determines how well it fits using all the predictors. Generally, we want to see a large difference between the null deviance and the residual deviance. In this case, we do see a difference going from 76501 to 63905, but it's not a very large one, which means our predictors only marginally improves the model. The deviance residuals show how much influence a datapoint may have on the model, producing stats similar to RSS. Our AIC is based on deviance and can be used for comparison between models. In this case, we don't have another logistics model, so it may not be useful for us. Most of the predictors can be seen with three stars, which means that the p-value is low enough to reject the null hypothesis for those predictors.
+
+```{r}
+glm1 <- glm(cardio~bmi+cholesterol+gluc+ap_hi+ap_lo, data=train, family=binomial)
+summary(glm1) 
+```
+
+### Naive Bayes Model
+
+Our A-priori shows us the probability of having cardiovascular disease prior from doing any data analysis. We could calculate this just by comparing the number of people who have the disease to the total number of people in the data set. We would have a 49.5% chance of having cardiovascular disease and a 50.5% of not having cardiovascular disease. For our quantitative data, such as bmi, we would get the mean and the standard deviation. For example, out of the patients who had cardiovascular disease, their bmi was average 28.5 with a standard deviation of 6.4. For qualitative data, such as cholesterol, we get the probability of each situation. If the patient had cardiovascular disease, there was a 65.9% probability they had a normal cholesterol level and a 17.7% chance they had way above average cholesterol levels.
+
+```{r} 
+library(e1071)
+nb1 <- naiveBayes(cardio~bmi+cholesterol+gluc+ap_hi+ap_lo, data=train)
+nb1
+```
+
+
+### Testing and Predictions
+
+The Naive Bayes Model had both a lower kappa value (.433 vs .444), a lower accuracy value (.716 vs .722), and a lower AUC value (.716 vs .722) than the logistics regression model, which means the logistics regressin model is better just from its stats. This is likely due to the fact that Naive Bayes assumes that the variables are all independent of each other, when in reality, all of the predictors used probably had an effect on each other (e.g., cholesterol levels and blood pressure). Both the models are extremely similar in score though, so I don't think it would be fair to pick one model over the other.
+
+```{r}
+library(caret)
+library(ROCR)
+par(mfrow=c(1,1))
+
+# Logistics Regression Model
+cat("Logistics Regression Model:\n")
+probs1 <- predict(glm1, newdata=test, type="response")
+pred1 <- ifelse(probs1>0.5, 1, 0)
+confusionMatrix(as.factor(pred1), reference=test$cardio)
+
+pr1 <- prediction(pred1, test$cardio)
+prf1 <- performance(pr1, measure="tpr", x.measure="fpr")
+plot(prf1)
+
+auc1 <- performance(pr1, measure="auc")
+auc1 <- auc1@y.values[[1]]
+print(paste("AUC: ", auc1))
+```
+```{r}
+library(caret)
+library(ROCR)
+par(mfrow=c(1,1))
+
+# Naive Bayes Model
+cat("\nNaive Bayes Model:\n")
+pred2 <- predict(nb1, newdata=test, type="class")
+confusionMatrix(as.factor(pred2), reference=test$cardio)
+
+predvec <- ifelse(pred2==1, 1, 0)
+pr2 <- prediction(predvec, test$cardio)
+prf2 <- performance(pr2, measure="tpr", x.measure="fpr")
+plot(prf2)
+
+auc2 <- performance(pr2, measure="auc")
+auc2 <- auc2@y.values[[1]]
+print(paste("AUC: ", auc2))
+```
+
+
+### Strengths and Weaknesses of Naive Bayes vs Logistic Regression
+
+Naive Bayes is widely used as a baseline algorithm, as it's very simple to implement and interpret and it's also very strong in it's own right. It excels when used on smaller data sets, but it can also work with higher dimensions, too. As for its weaknesses, it often performs poorly on larger data sets compared to other models and it also takes under the assumption that all of its predictors are independent, meaning that if they aren't then the algorithm could be bottlenecked.
+
+Logistics Regression is great when it comes to differentiating between linearly separable classes. The algorithm itself isn't very hard computationally either while still giving good results. However, it does share the same weaknesses of linear regression, as often times it'll underfit the data and struggle in cases where the decision boundary is non-linear.
+
+### Benefits, drawbacks of each of the classification metrics
+
+The accuracy value is solely based on how many correct predictions were made. The benefit of this is that it's straight forward and easy to understand, but it doesn't really account for pure chance. The kappa value is the accuracy value but adjusted for pure luck/chance. In both of the models, we can see a kappa value slight above 0.4, which means we have a moderate agreement between our data. The disadvantage of kappa, however, is that it's difficult to interpret on its own, and there are many different definitions of what a 'good' kappa score would be. The ROCR curve is the trade-off of showing TP and avoiding FP. Generally, we would like to see the curve reach as far as it can to the top left. The AUC statistic is the area under the ROCR curve. This is beneficial in deciding where at which point someone would want the TP to FP ratio to be. However, the drawback is that it doesn't account for misclassification.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
